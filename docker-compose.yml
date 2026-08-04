@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+    mongodb:
+        image: mongo:latest
+        container_name: native_todo_mongo
+        restart: always
+        ports:
+            - '27017:27017'
+        environment:
+            - MONGO_INITDB_DATABASE=todo_db
+        volumes:
+            - mongo_data:/data/db
+
+    api:
+        build: .
+        container_name: native_todo_api
+        restart: always
+        ports:
+            - '3000:3000'
+        environment:
+            - PORT=3000
+            - MONGO_URI=mongodb://mongodb:27017/todo_db
+            - NODE_ENV=development
+        depends_on:
+            - mongodb
+
+volumes:
+    mongo_data:
