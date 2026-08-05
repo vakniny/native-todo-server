@@ -9,11 +9,7 @@ import { apiLimiter } from './middleware/rateLimit'
 
 const app = express()
 
-// Behind a proxy/load balancer the rate limiters need the real client IP,
-// otherwise every request looks like it came from the proxy.
-if (process.env.TRUST_PROXY) {
-	app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1)
-}
+app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1)
 
 app.use(helmet())
 
