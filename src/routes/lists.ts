@@ -29,7 +29,12 @@ const serializeList = (list: {
 
 // Handler errors carry Mongoose/Mongo internals, so they are logged server-side
 // and never echoed to the client.
-const fail = (res: Response, status: number, message: string, error?: unknown) => {
+const fail = (
+	res: Response,
+	status: number,
+	message: string,
+	error?: unknown,
+) => {
 	if (error) console.error(`[lists] ${message}:`, error)
 	res.status(status).json({ message })
 }
@@ -54,7 +59,11 @@ router.post('/', async (req: Request, res: Response) => {
 		const deviceId = getDeviceId(req)
 
 		if (!name) {
-			fail(res, 400, `name is required (max ${MAX_NAME_LENGTH} characters)`)
+			fail(
+				res,
+				400,
+				`name is required (max ${MAX_NAME_LENGTH} characters)`,
+			)
 			return
 		}
 		if (!deviceId) {
@@ -78,73 +87,83 @@ router.post('/', async (req: Request, res: Response) => {
 // GET /api/lists/join/:inviteCode — resolve a code to list metadata (no side
 // effect). The invite code is the only secret guarding a folder, so this route
 // is rate limited and never reveals the code back to an unauthenticated caller.
-router.get('/join/:inviteCode', joinLimiter, async (req: Request, res: Response) => {
-	try {
-		const inviteCode = String(req.params.inviteCode).trim().toUpperCase()
-		if (!isValidInviteCode(inviteCode)) {
-			fail(res, 404, 'Invite code not found')
-			return
-		}
+router.get(
+	'/join/:inviteCode',
+	joinLimiter,
+	async (req: Request, res: Response) => {
+		try {
+			const inviteCode = String(req.params.inviteCode)
+				.trim()
+				.toUpperCase()
+			if (!isValidInviteCode(inviteCode)) {
+				fail(res, 404, 'Invite code not found')
+				return
+			}
 
-		const list = await List.findOne({ inviteCode })
-		if (!list) {
-			fail(res, 404, 'Invite code not found')
-			return
-		}
+			const list = await List.findOne({ inviteCode })
+			if (!list) {
+				fail(res, 404, 'Invite code not found')
+				return
+			}
 
-		res.json({
-			_id: list._id,
-			name: list.name,
-			memberCount: list.memberIds.length,
-		})
-	} catch (error) {
-		fail(res, 500, 'Could not look up that invite code', error)
-	}
-})
+			res.json({
+				_id: list._id,
+				name: list.name,
+				memberCount: list.memberIds.length,
+			})
+		} catch (error) {
+			fail(res, 500, 'Could not look up that invite code', error)
+		}
+	},
+)
 
 // POST /api/lists/:listId/join — register this device as a member (idempotent).
 // The invite code MUST be supplied and verified: ObjectIds are guessable
 // (shared per-process random + incrementing counter), so accepting a bare
 // listId here would hand any folder to anyone who can enumerate ids.
-router.post('/:listId/join', joinLimiter, async (req: Request, res: Response) => {
-	try {
-		const { listId } = req.params
-		const deviceId = getDeviceId(req)
-		const inviteCode = String(req.body?.inviteCode ?? '')
-			.trim()
-			.toUpperCase()
+router.post(
+	'/:listId/join',
+	joinLimiter,
+	async (req: Request, res: Response) => {
+		try {
+			const { listId } = req.params
+			const deviceId = getDeviceId(req)
+			const inviteCode = String(req.body?.inviteCode ?? '')
+				.trim()
+				.toUpperCase()
 
-		if (!mongoose.isValidObjectId(listId)) {
-			fail(res, 400, 'Invalid list id')
-			return
-		}
-		if (!deviceId) {
-			fail(res, 400, 'Device id is required')
-			return
-		}
-		if (!isValidInviteCode(inviteCode)) {
-			fail(res, 403, 'A valid invite code is required to join')
-			return
-		}
+			if (!mongoose.isValidObjectId(listId)) {
+				fail(res, 400, 'Invalid list id')
+				return
+			}
+			if (!deviceId) {
+				fail(res, 400, 'Device id is required')
+				return
+			}
+			if (!isValidInviteCode(inviteCode)) {
+				fail(res, 403, 'A valid invite code is required to join')
+				return
+			}
 
-		// Matching on both id and code in one query keeps the failure response
-		// identical whether the id is wrong, the code is wrong, or both.
-		const list = await List.findOneAndUpdate(
-			{ _id: listId, inviteCode },
-			{ $addToSet: { memberIds: deviceId } },
-			{ new: true },
-		)
+			// Matching on both id and code in one query keeps the failure response
+			// identical whether the id is wrong, the code is wrong, or both.
+			const list = await List.findOneAndUpdate(
+				{ _id: listId, inviteCode },
+				{ $addToSet: { memberIds: deviceId } },
+				{ returnDocument: 'after' },
+			)
 
-		if (!list) {
-			fail(res, 403, 'A valid invite code is required to join')
-			return
+			if (!list) {
+				fail(res, 403, 'A valid invite code is required to join')
+				return
+			}
+
+			res.json(serializeList(list))
+		} catch (error) {
+			fail(res, 500, 'Could not join the folder', error)
 		}
-
-		res.json(serializeList(list))
-	} catch (error) {
-		fail(res, 500, 'Could not join the folder', error)
-	}
-})
+	},
+)
 
 // POST /api/lists/:listId/leave — unregister this device; cascade-delete the
 // list and its todos once the last member has left.
@@ -156,7 +175,7 @@ router.post(
 			const list = await List.findByIdAndUpdate(
 				req.list!._id,
 				{ $pull: { memberIds: req.deviceId! } },
-				{ new: true },
+				{ returnDocument: 'after' },
 			)
 
 			if (!list) {
@@ -186,7 +205,11 @@ router.patch(
 		try {
 			const name = readName(req.body?.name)
 			if (!name) {
-				fail(res, 400, `name is required (max ${MAX_NAME_LENGTH} characters)`)
+				fail(
+					res,
+					400,
+					`name is required (max ${MAX_NAME_LENGTH} characters)`,
+				)
 				return
 			}
 
@@ -215,9 +238,11 @@ router.get(
 	requireListMembership,
 	async (req: ListRequest, res: Response) => {
 		try {
-			const todos = await SharedTodo.find({ listId: req.list!._id }).sort({
-				createdAt: -1,
-			})
+			const todos = await SharedTodo.find({ listId: req.list!._id }).sort(
+				{
+					createdAt: -1,
+				},
+			)
 			res.json(todos)
 		} catch (error) {
 			fail(res, 500, 'Could not load todos', error)
@@ -233,7 +258,11 @@ router.post(
 		try {
 			const title = readTitle(req.body?.title ?? '')
 			if (title === null) {
-				fail(res, 400, `title must be a string of at most ${MAX_TITLE_LENGTH} characters`)
+				fail(
+					res,
+					400,
+					`title must be a string of at most ${MAX_TITLE_LENGTH} characters`,
+				)
 				return
 			}
 
@@ -262,7 +291,11 @@ router.patch(
 
 			const { title, isCompleted } = req.body ?? {}
 			if (title !== undefined && readTitle(title) === null) {
-				fail(res, 400, `title must be a string of at most ${MAX_TITLE_LENGTH} characters`)
+				fail(
+					res,
+					400,
+					`title must be a string of at most ${MAX_TITLE_LENGTH} characters`,
+				)
 				return
 			}
 
